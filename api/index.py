@@ -5,6 +5,10 @@ import os
 import time
 from flask_cors import CORS
 import traceback
+<<<<<<< HEAD
+=======
+import pickle
+>>>>>>> 97b13c77256cb2c7c642e260712c1a71902ec652
 # Import your story_nodes, other helpers (modified to remove pygame)
 # MAKE SURE Pillow is installed for manga generation later
 # from PIL import Image, ImageDraw # If doing manga server-side
@@ -12,6 +16,36 @@ import traceback
 app = Flask(__name__)
 CORS(app)  # Enable CORS for all routes
 
+<<<<<<< HEAD
+=======
+# Replace in-memory session storage with file-based storage for Vercel
+# Create a tmp directory if it doesn't exist
+os.makedirs('/tmp', exist_ok=True)
+
+def get_user_session(session_id):
+    """Get user session from file storage"""
+    try:
+        session_file = f"/tmp/session_{session_id}.pkl"
+        if os.path.exists(session_file):
+            with open(session_file, 'rb') as f:
+                return pickle.load(f)
+        return {'state': None}
+    except Exception as e:
+        logging.error(f"Error getting user session: {str(e)}")
+        return {'state': None}
+
+def save_user_session(session_id, session_data):
+    """Save user session to file storage"""
+    try:
+        session_file = f"/tmp/session_{session_id}.pkl"
+        with open(session_file, 'wb') as f:
+            pickle.dump(session_data, f)
+        return True
+    except Exception as e:
+        logging.error(f"Error saving user session: {str(e)}")
+        return False
+
+>>>>>>> 97b13c77256cb2c7c642e260712c1a71902ec652
 # --- Constants (Remove Pygame colors/fonts) ---
 POLLINATIONS_BASE_URL = "https://image.pollinations.ai/prompt/"
 IMAGE_WIDTH = 1024
@@ -396,9 +430,12 @@ game_state = {
     "last_reset": time.time()  # Track when the game was last reset
 }
 
+<<<<<<< HEAD
 # Add a user_sessions dictionary to track individual user sessions
 user_sessions = {}
 
+=======
+>>>>>>> 97b13c77256cb2c7c642e260712c1a71902ec652
 # --- Helper Functions (Refactored - NO PYGAME) ---
 def get_dynamic_seed(base_seed, path_node_ids, session_id=None):
     """Generate a unique seed based on the path taken and session ID"""
@@ -415,46 +452,60 @@ def get_dynamic_seed(base_seed, path_node_ids, session_id=None):
     return seed
 
 def enhance_prompt(base_prompt, path_tuples, sentiment_tally, last_choice, session_id=None):
+<<<<<<< HEAD
     """Enhance the base prompt with unique elements based on the user's journey"""
     # Get the user's style preferences (if stored in their session)
     style_elements = []
     if session_id and session_id in user_sessions and 'style_preferences' in user_sessions[session_id]:
         style_elements = user_sessions[session_id]['style_preferences']
+=======
+    """Enhance a prompt based on the user's journey and style preferences"""
+    # Start with base style elements
+    style_elements = ["detailed", "fantasy style"]
+>>>>>>> 97b13c77256cb2c7c642e260712c1a71902ec652
     
-    # Default style elements if none are set
-    if not style_elements:
-        style_elements = ["detailed", "fantasy", "ethereal"]
+    # Add elements based on sentiment tally
+    positive_traits = ["kind", "adventurous", "bold", "wise", "resourceful"]
+    negative_traits = ["selfish", "cautious", "stubborn"]
     
-    # Add sentiment-based modifiers
-    if sentiment_tally.get('kind', 0) > sentiment_tally.get('selfish', 0):
-        style_elements.append("warm light")
-    else:
-        style_elements.append("cool tones")
-        
-    if sentiment_tally.get('adventurous', 0) > 1:
-        style_elements.append("vibrant")
+    positive_count = sum(sentiment_tally.get(tag, 0) for tag in positive_traits)
+    negative_count = sum(sentiment_tally.get(tag, 0) for tag in negative_traits)
     
-    if sentiment_tally.get('cautious', 0) > 1:
+    # Add style modifiers based on sentiment balance
+    if positive_count > negative_count:
+        style_elements.append("bright")
+        style_elements.append("vibrant colors")
+    elif negative_count > positive_count:
+        style_elements.append("dark")
         style_elements.append("muted colors")
     
     # Add a unique element based on session ID if available
     if session_id:
-        # Use the session ID to deterministically select unique style elements
-        session_hash = int(hashlib.md5(session_id.encode()).hexdigest(), 16)
+        # Get user session data
+        session_data = get_user_session(session_id)
         
-        # List of potential style modifiers to make images unique
-        unique_styles = [
-            "cinematic lighting", "golden hour", "blue hour", "mist", 
-            "ray tracing", "dramatic shadows", "soft focus", "high contrast",
-            "low saturation", "high saturation", "dreamlike", "surreal",
-            "watercolor style", "oil painting style", "concept art", "digital art"
-        ]
+        # Get style preferences from session data
+        style_preferences = session_data.get('style_preferences', [])
+        if style_preferences:
+            style_elements.extend(style_preferences)
         
-        # Select 1-3 unique styles based on session ID
-        num_styles = 1 + (session_hash % 3)  # 1 to 3 styles
-        for i in range(num_styles):
-            style_index = (session_hash + i) % len(unique_styles)
-            style_elements.append(unique_styles[style_index])
+        # Use the session ID to deterministically select unique style elements if no preferences
+        if not style_preferences:
+            session_hash = int(hashlib.md5(session_id.encode()).hexdigest(), 16)
+            
+            # List of potential style modifiers to make images unique
+            unique_styles = [
+                "cinematic lighting", "golden hour", "blue hour", "mist", 
+                "ray tracing", "dramatic shadows", "soft focus", "high contrast",
+                "low saturation", "high saturation", "dreamlike", "surreal",
+                "watercolor style", "oil painting style", "concept art", "digital art"
+            ]
+            
+            # Select 1-3 unique styles based on session ID
+            num_styles = 1 + (session_hash % 3)  # 1 to 3 styles
+            for i in range(num_styles):
+                style_index = (session_hash + i) % len(unique_styles)
+                style_elements.append(unique_styles[style_index])
     
     # Combine everything into an enhanced prompt
     enhanced = f"{base_prompt}, {', '.join(style_elements)}"
@@ -476,6 +527,7 @@ def reset_game_state(session_id=None):
         "created_at": time.time()
     }
     
+<<<<<<< HEAD
     # If we have a session ID, store the state in the user_sessions dictionary
     if session_id:
         if session_id not in user_sessions:
@@ -490,6 +542,33 @@ def reset_game_state(session_id=None):
         user_sessions[session_id]['style_preferences'] = random.sample(all_style_options, 3)
         user_sessions[session_id]['state'] = initial_state
         return user_sessions[session_id]['state']
+=======
+    # If we have a session ID, store the state in persistent storage
+    if session_id:
+        try:
+            import random
+            all_style_options = [
+                "fantasy", "medieval", "ethereal", "mystical", "dramatic", 
+                "whimsical", "dark", "bright", "colorful", "muted"
+            ]
+            traits = ["cautious", "bold", "diplomatic", "direct", "curious", "practical", 
+                      "optimistic", "pessimistic", "detailed", "concise"]
+            
+            # Get existing session or create new one
+            session_data = get_user_session(session_id)
+            
+            # Update the session data
+            session_data['style_preferences'] = random.sample(all_style_options, 3)
+            session_data['personality_traits'] = random.sample(traits, 3)
+            session_data['state'] = initial_state
+            
+            # Save the updated session
+            save_user_session(session_id, session_data)
+            
+            logging.info(f"Successfully reset state for session {session_id}")
+        except Exception as e:
+            logging.error(f"Error resetting state: {str(e)}")
+>>>>>>> 97b13c77256cb2c7c642e260712c1a71902ec652
     
     return initial_state
 
@@ -548,11 +627,22 @@ def get_current_state():
             # Generate a new session ID
             session_id = hashlib.md5(f"{time.time()}-{os.urandom(8).hex()}".encode()).hexdigest()
         
+<<<<<<< HEAD
         # Get or create the user's game state
         if session_id in user_sessions and 'state' in user_sessions[session_id]:
             game_state = user_sessions[session_id]['state']
         else:
             game_state = reset_game_state(session_id)
+=======
+        # Get or create the user's game state from persistent storage
+        session_data = get_user_session(session_id)
+        game_state = session_data.get('state')
+        
+        if not game_state:
+            # Reset/initialize the game state
+            game_state = reset_game_state(session_id)
+            logging.info(f"Created new state for session {session_id}")
+>>>>>>> 97b13c77256cb2c7c642e260712c1a71902ec652
         
         current_node_id = game_state["current_node_id"]
         node_details = get_node_details(current_node_id)
@@ -585,18 +675,33 @@ def get_current_state():
             # Keep a deep copy to avoid modifying the original
             choices = [choice.copy() for choice in choices]
             
+<<<<<<< HEAD
             # Get user's personality traits from sessions or generate new ones
             if session_id not in user_sessions:
                 user_sessions[session_id] = {}
             
             if 'personality_traits' not in user_sessions[session_id]:
+=======
+            # Get user's personality traits
+            personality_traits = session_data.get('personality_traits', [])
+            
+            if not personality_traits:
+>>>>>>> 97b13c77256cb2c7c642e260712c1a71902ec652
                 # Generate random personality traits for this user
                 import random
                 traits = ["cautious", "bold", "diplomatic", "direct", "curious", "practical", 
                           "optimistic", "pessimistic", "detailed", "concise"]
+<<<<<<< HEAD
                 user_sessions[session_id]['personality_traits'] = random.sample(traits, 3)
             
             user_traits = user_sessions[session_id]['personality_traits']
+=======
+                personality_traits = random.sample(traits, 3)
+                
+                # Update session with new traits
+                session_data['personality_traits'] = personality_traits
+                save_user_session(session_id, session_data)
+>>>>>>> 97b13c77256cb2c7c642e260712c1a71902ec652
             
             # Get a hash from the session ID to make choices consistently unique per user
             session_hash = int(hashlib.md5(session_id.encode()).hexdigest(), 16)
@@ -624,58 +729,44 @@ def get_current_state():
                 }
                 
                 # Get suitable adjectives for this user's personality
+<<<<<<< HEAD
                 suitable_adjectives = []
                 for trait in user_traits:
+=======
+                user_adjectives = []
+                for trait in personality_traits:
+>>>>>>> 97b13c77256cb2c7c642e260712c1a71902ec652
                     if trait in adjectives:
-                        suitable_adjectives.extend(adjectives[trait])
+                        user_adjectives.extend(adjectives[trait])
                 
-                if suitable_adjectives:
-                    # Select a consistent adjective based on session and choice
-                    adj_index = (session_hash + i) % len(suitable_adjectives)
-                    selected_adj = suitable_adjectives[adj_index]
-                    
-                    # Insert the adjective into the choice text if it makes sense
-                    # Identify the verb in the choice text
-                    words = original_text.split()
-                    # Simple heuristic: Look for verbs typical in choices
-                    common_verbs = ["Take", "Go", "Explore", "Talk", "Help", "Ignore", "Follow", "Leave", 
-                                   "Examine", "Search", "Ask", "Fight", "Run", "Hide", "Climb", "Jump"]
-                    
-                    for j, word in enumerate(words):
-                        if word in common_verbs and j < len(words) - 1:
-                            # Insert adjective after the verb
-                            modified_text = " ".join(words[:j+1]) + " " + selected_adj + " " + " ".join(words[j+1:])
-                            choice["text"] = modified_text
-                            break
+                # If no suitable adjectives found, use a default set
+                if not user_adjectives:
+                    user_adjectives = ["carefully", "boldly", "curiously"]
+                
+                # Use session ID hash to pick a consistent adjective for each choice
+                adj_index = (session_hash + i) % len(user_adjectives)
+                selected_adj = user_adjectives[adj_index]
+                
+                # Only modify the text if it doesn't already start with an adverb
+                adverb_endings = ["ly ", "ly."]
+                has_adverb = any(original_text.split()[0].endswith(ending) for ending in adverb_endings)
+                
+                if not has_adverb and not original_text.startswith(selected_adj):
+                    # Add the adjective to the beginning of the choice
+                    choice["text"] = f"{selected_adj.capitalize()} {original_text[0].lower()}{original_text[1:]}"
         
-        # Get the score from the game state, ensuring consistency in property names
-        score = game_state.get("score", 0)
-        
-        # Prepare the response
-        response_data = {
-            "situation": node_details.get("situation", ""),
-            "is_end": node_details.get("is_end", False),
-            "ending_category": node_details.get("ending_category", ""),
-            "choices": choices,  # Use personalized choices
+        # Create response with cookie to save the session ID
+        state_details = {
+            "current_node": node_details,
+            "score": game_state.get("score", 0),
             "image_url": image_url,
-            "image_prompt": enhanced_prompt,
-            "current_score": score,  # Use consistent name for frontend
-            "score": score  # Include both for backward compatibility
+            "is_end": node_details.get("is_end", False),
+            "choices": node_details.get("choices", []),
+            "situation": node_details.get("situation", "")
         }
         
-        # Generate special end-game content if this is an end node
-        if node_details.get("is_end", False):
-            manga_prompt = f"Manga style, story summary of {enhanced_prompt}"
-            encoded_manga_prompt = requests.utils.quote(manga_prompt)
-            response_data["manga_image_url"] = f"{POLLINATIONS_BASE_URL}{encoded_manga_prompt}"
-            
-            summary_prompt = f"Fantasy book cover, hero's journey, {enhanced_prompt}"
-            encoded_summary_prompt = requests.utils.quote(summary_prompt)
-            response_data["summary_image_url"] = f"{POLLINATIONS_BASE_URL}{encoded_summary_prompt}"
-        
-        # Create response with cookie
-        response = make_response(jsonify(response_data))
-        response.set_cookie('session_id', session_id, max_age=86400*30)  # 30 days
+        response = make_response(jsonify(state_details))
+        response.set_cookie('session_id', session_id, max_age=60*60*24*7)  # 7 days
         return response
         
     except Exception as e:
@@ -685,16 +776,16 @@ def get_current_state():
 @app.route('/api/choice', methods=['POST'])
 def make_choice():
     try:
-        data = request.json
-        choice_index = data.get('choice_index')
-        
-        if choice_index is None:
-            return jsonify({"error": "Missing choice_index"}), 400
-        
+        # Get post data
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "No data provided"}), 400
+            
         # Get user's session ID from cookies
         session_id = request.cookies.get('session_id')
         if not session_id:
             return jsonify({"error": "No session found"}), 400
+<<<<<<< HEAD
         
         # Get the user's game state
         if session_id not in user_sessions or 'state' not in user_sessions[session_id]:
@@ -702,6 +793,31 @@ def make_choice():
             
         game_state = user_sessions[session_id]['state']
         current_node_id = game_state["current_node_id"]
+=======
+            
+        # Get choice index
+        choice_index = data.get("choice_index")
+        if choice_index is None:
+            return jsonify({"error": "No choice index provided"}), 400
+            
+        # Try to convert to integer
+        try:
+            choice_index = int(choice_index)
+        except ValueError:
+            return jsonify({"error": "Choice index must be a number"}), 400
+            
+        # Get the user's game state from persistent storage
+        session_data = get_user_session(session_id)
+        game_state = session_data.get('state')
+        
+        if not game_state:
+            return jsonify({"error": "No game in progress"}), 400
+            
+        # Get current node
+        current_node_id = game_state.get("current_node_id", "")
+        if not current_node_id:
+            return jsonify({"error": "No current node in game state"}), 400
+>>>>>>> 97b13c77256cb2c7c642e260712c1a71902ec652
         
         # Get current node details
         node_details = get_node_details(current_node_id)
@@ -784,8 +900,15 @@ def make_choice():
             "tag": tag
         })
         
+<<<<<<< HEAD
         # Save the updated state
         user_sessions[session_id]['state'] = game_state
+=======
+        # Save the updated state to persistent storage
+        session_data['state'] = game_state
+        save_user_session(session_id, session_data)
+        logging.info(f"Saved updated state after choice for session {session_id}")
+>>>>>>> 97b13c77256cb2c7c642e260712c1a71902ec652
         
         # Return the new state
         return get_current_state()
@@ -805,6 +928,10 @@ def reset_game():
         
         # Reset the game state for this session
         reset_game_state(session_id)
+<<<<<<< HEAD
+=======
+        logging.info(f"Reset game state for session {session_id}")
+>>>>>>> 97b13c77256cb2c7c642e260712c1a71902ec652
         
         # Instead of just returning success message, return the actual game state
         # by calling the get_current_state function
@@ -822,12 +949,22 @@ def generate_share_image():
         if not session_id:
             return jsonify({"error": "No session found"}), 400
         
+<<<<<<< HEAD
         # Get the user's game state
         if session_id not in user_sessions or 'state' not in user_sessions[session_id]:
             return jsonify({"error": "No game in progress"}), 400
             
         game_state = user_sessions[session_id]['state']
         
+=======
+        # Get the user's game state from persistent storage
+        session_data = get_user_session(session_id)
+        game_state = session_data.get('state')
+        
+        if not game_state:
+            return jsonify({"error": "No game in progress"}), 400
+            
+>>>>>>> 97b13c77256cb2c7c642e260712c1a71902ec652
         # Get score and ending information
         score = game_state.get("score", 0)
         current_node_id = game_state.get("current_node_id", "")
@@ -890,6 +1027,15 @@ def generate_share_image():
     except Exception as e:
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
+
+# Handle OPTIONS for CORS preflight requests
+@app.route('/api/<path:path>', methods=['OPTIONS'])
+def handle_options(path):
+    response = make_response()
+    response.headers.add('Access-Control-Allow-Origin', '*')
+    response.headers.add('Access-Control-Allow-Headers', 'Content-Type')
+    response.headers.add('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+    return response
 
 # Vercel expects the app object for Python runtimes
 # The file is usually named index.py inside an 'api' folder
