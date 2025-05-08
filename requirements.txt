@@ -2,9 +2,6 @@ flask
 requests
 Pillow
 flask-cors
-<<<<<<< HEAD
-=======
 Werkzeug
 python-dotenv
 gunicorn
->>>>>>> 97b13c77256cb2c7c642e260712c1a71902ec652

@@ -5,10 +5,8 @@ import os
 import time
 from flask_cors import CORS
 import traceback
-<<<<<<< HEAD
-=======
 import pickle
->>>>>>> 97b13c77256cb2c7c642e260712c1a71902ec652
+import logging
 # Import your story_nodes, other helpers (modified to remove pygame)
 # MAKE SURE Pillow is installed for manga generation later
 # from PIL import Image, ImageDraw # If doing manga server-side
@@ -16,8 +14,6 @@ import pickle
 app = Flask(__name__)
 CORS(app)  # Enable CORS for all routes
 
-<<<<<<< HEAD
-=======
 # Replace in-memory session storage with file-based storage for Vercel
 # Create a tmp directory if it doesn't exist
 os.makedirs('/tmp', exist_ok=True)
@@ -45,7 +41,6 @@ def save_user_session(session_id, session_data):
         logging.error(f"Error saving user session: {str(e)}")
         return False
 
->>>>>>> 97b13c77256cb2c7c642e260712c1a71902ec652
 # --- Constants (Remove Pygame colors/fonts) ---
 POLLINATIONS_BASE_URL = "https://image.pollinations.ai/prompt/"
 IMAGE_WIDTH = 1024
@@ -430,12 +425,9 @@ game_state = {
     "last_reset": time.time()  # Track when the game was last reset
 }
 
-<<<<<<< HEAD
 # Add a user_sessions dictionary to track individual user sessions
 user_sessions = {}
 
-=======
->>>>>>> 97b13c77256cb2c7c642e260712c1a71902ec652
 # --- Helper Functions (Refactored - NO PYGAME) ---
 def get_dynamic_seed(base_seed, path_node_ids, session_id=None):
     """Generate a unique seed based on the path taken and session ID"""
@@ -452,17 +444,18 @@ def get_dynamic_seed(base_seed, path_node_ids, session_id=None):
     return seed
 
 def enhance_prompt(base_prompt, path_tuples, sentiment_tally, last_choice, session_id=None):
-<<<<<<< HEAD
-    """Enhance the base prompt with unique elements based on the user's journey"""
-    # Get the user's style preferences (if stored in their session)
-    style_elements = []
-    if session_id and session_id in user_sessions and 'style_preferences' in user_sessions[session_id]:
-        style_elements = user_sessions[session_id]['style_preferences']
-=======
     """Enhance a prompt based on the user's journey and style preferences"""
     # Start with base style elements
     style_elements = ["detailed", "fantasy style"]
->>>>>>> 97b13c77256cb2c7c642e260712c1a71902ec652
+    
+    if session_id:
+        # Get user session data
+        session_data = get_user_session(session_id)
+        
+        # Get style preferences from session data
+        style_preferences = session_data.get('style_preferences', [])
+        if style_preferences:
+            style_elements.extend(style_preferences)
     
     # Add elements based on sentiment tally
     positive_traits = ["kind", "adventurous", "bold", "wise", "resourceful"]
@@ -478,34 +471,6 @@ def enhance_prompt(base_prompt, path_tuples, sentiment_tally, last_choice, sessi
     elif negative_count > positive_count:
         style_elements.append("dark")
         style_elements.append("muted colors")
-    
-    # Add a unique element based on session ID if available
-    if session_id:
-        # Get user session data
-        session_data = get_user_session(session_id)
-        
-        # Get style preferences from session data
-        style_preferences = session_data.get('style_preferences', [])
-        if style_preferences:
-            style_elements.extend(style_preferences)
-        
-        # Use the session ID to deterministically select unique style elements if no preferences
-        if not style_preferences:
-            session_hash = int(hashlib.md5(session_id.encode()).hexdigest(), 16)
-            
-            # List of potential style modifiers to make images unique
-            unique_styles = [
-                "cinematic lighting", "golden hour", "blue hour", "mist", 
-                "ray tracing", "dramatic shadows", "soft focus", "high contrast",
-                "low saturation", "high saturation", "dreamlike", "surreal",
-                "watercolor style", "oil painting style", "concept art", "digital art"
-            ]
-            
-            # Select 1-3 unique styles based on session ID
-            num_styles = 1 + (session_hash % 3)  # 1 to 3 styles
-            for i in range(num_styles):
-                style_index = (session_hash + i) % len(unique_styles)
-                style_elements.append(unique_styles[style_index])
     
     # Combine everything into an enhanced prompt
     enhanced = f"{base_prompt}, {', '.join(style_elements)}"
@@ -527,22 +492,6 @@ def reset_game_state(session_id=None):
         "created_at": time.time()
     }
     
-<<<<<<< HEAD
-    # If we have a session ID, store the state in the user_sessions dictionary
-    if session_id:
-        if session_id not in user_sessions:
-            user_sessions[session_id] = {}
-        
-        # Generate some random style preferences for this session
-        import random
-        all_style_options = [
-            "fantasy", "medieval", "ethereal", "mystical", "dramatic", 
-            "whimsical", "dark", "bright", "colorful", "muted"
-        ]
-        user_sessions[session_id]['style_preferences'] = random.sample(all_style_options, 3)
-        user_sessions[session_id]['state'] = initial_state
-        return user_sessions[session_id]['state']
-=======
     # If we have a session ID, store the state in persistent storage
     if session_id:
         try:
@@ -566,9 +515,10 @@ def reset_game_state(session_id=None):
             save_user_session(session_id, session_data)
             
             logging.info(f"Successfully reset state for session {session_id}")
+            return initial_state
         except Exception as e:
             logging.error(f"Error resetting state: {str(e)}")
->>>>>>> 97b13c77256cb2c7c642e260712c1a71902ec652
+            return initial_state
     
     return initial_state
 
@@ -627,13 +577,6 @@ def get_current_state():
             # Generate a new session ID
             session_id = hashlib.md5(f"{time.time()}-{os.urandom(8).hex()}".encode()).hexdigest()
         
-<<<<<<< HEAD
-        # Get or create the user's game state
-        if session_id in user_sessions and 'state' in user_sessions[session_id]:
-            game_state = user_sessions[session_id]['state']
-        else:
-            game_state = reset_game_state(session_id)
-=======
         # Get or create the user's game state from persistent storage
         session_data = get_user_session(session_id)
         game_state = session_data.get('state')
@@ -642,7 +585,6 @@ def get_current_state():
             # Reset/initialize the game state
             game_state = reset_game_state(session_id)
             logging.info(f"Created new state for session {session_id}")
->>>>>>> 97b13c77256cb2c7c642e260712c1a71902ec652
         
         current_node_id = game_state["current_node_id"]
         node_details = get_node_details(current_node_id)
@@ -675,36 +617,36 @@ def get_current_state():
             # Keep a deep copy to avoid modifying the original
             choices = [choice.copy() for choice in choices]
             
-<<<<<<< HEAD
-            # Get user's personality traits from sessions or generate new ones
-            if session_id not in user_sessions:
-                user_sessions[session_id] = {}
-            
-            if 'personality_traits' not in user_sessions[session_id]:
-=======
             # Get user's personality traits
             personality_traits = session_data.get('personality_traits', [])
             
             if not personality_traits:
->>>>>>> 97b13c77256cb2c7c642e260712c1a71902ec652
                 # Generate random personality traits for this user
                 import random
                 traits = ["cautious", "bold", "diplomatic", "direct", "curious", "practical", 
                           "optimistic", "pessimistic", "detailed", "concise"]
-<<<<<<< HEAD
-                user_sessions[session_id]['personality_traits'] = random.sample(traits, 3)
-            
-            user_traits = user_sessions[session_id]['personality_traits']
-=======
                 personality_traits = random.sample(traits, 3)
                 
                 # Update session with new traits
                 session_data['personality_traits'] = personality_traits
                 save_user_session(session_id, session_data)
->>>>>>> 97b13c77256cb2c7c642e260712c1a71902ec652
             
             # Get a hash from the session ID to make choices consistently unique per user
             session_hash = int(hashlib.md5(session_id.encode()).hexdigest(), 16)
+            
+            # Adjective modifiers based on personality
+            adjectives = {
+                "cautious": ["carefully", "cautiously", "deliberately"],
+                "bold": ["boldly", "bravely", "confidently"],
+                "diplomatic": ["politely", "respectfully", "graciously"],
+                "direct": ["directly", "straightforwardly", "bluntly"],
+                "curious": ["curiously", "inquisitively", "wonderingly"],
+                "practical": ["practically", "sensibly", "reasonably"],
+                "optimistic": ["hopefully", "optimistically", "eagerly"],
+                "pessimistic": ["warily", "skeptically", "doubtfully"],
+                "detailed": ["meticulously", "thoroughly", "carefully"],
+                "concise": ["simply", "briefly", "efficiently"]
+            }
             
             # Personalize choices (except first one at the start node) with small variations
             for i, choice in enumerate(choices):
@@ -714,28 +656,9 @@ def get_current_state():
                     
                 original_text = choice.get("text", "")
                 
-                # Adjective modifiers based on personality
-                adjectives = {
-                    "cautious": ["carefully", "cautiously", "deliberately"],
-                    "bold": ["boldly", "bravely", "confidently"],
-                    "diplomatic": ["politely", "respectfully", "graciously"],
-                    "direct": ["directly", "straightforwardly", "bluntly"],
-                    "curious": ["curiously", "inquisitively", "wonderingly"],
-                    "practical": ["practically", "sensibly", "reasonably"],
-                    "optimistic": ["hopefully", "optimistically", "eagerly"],
-                    "pessimistic": ["warily", "skeptically", "doubtfully"],
-                    "detailed": ["meticulously", "thoroughly", "carefully"],
-                    "concise": ["simply", "briefly", "efficiently"]
-                }
-                
                 # Get suitable adjectives for this user's personality
-<<<<<<< HEAD
-                suitable_adjectives = []
-                for trait in user_traits:
-=======
                 user_adjectives = []
                 for trait in personality_traits:
->>>>>>> 97b13c77256cb2c7c642e260712c1a71902ec652
                     if trait in adjectives:
                         user_adjectives.extend(adjectives[trait])
                 
@@ -761,7 +684,7 @@ def get_current_state():
             "score": game_state.get("score", 0),
             "image_url": image_url,
             "is_end": node_details.get("is_end", False),
-            "choices": node_details.get("choices", []),
+            "choices": choices,
             "situation": node_details.get("situation", "")
         }
         
@@ -785,15 +708,6 @@ def make_choice():
         session_id = request.cookies.get('session_id')
         if not session_id:
             return jsonify({"error": "No session found"}), 400
-<<<<<<< HEAD
-        
-        # Get the user's game state
-        if session_id not in user_sessions or 'state' not in user_sessions[session_id]:
-            return jsonify({"error": "No game in progress"}), 400
-            
-        game_state = user_sessions[session_id]['state']
-        current_node_id = game_state["current_node_id"]
-=======
             
         # Get choice index
         choice_index = data.get("choice_index")
@@ -817,7 +731,6 @@ def make_choice():
         current_node_id = game_state.get("current_node_id", "")
         if not current_node_id:
             return jsonify({"error": "No current node in game state"}), 400
->>>>>>> 97b13c77256cb2c7c642e260712c1a71902ec652
         
         # Get current node details
         node_details = get_node_details(current_node_id)
@@ -900,15 +813,10 @@ def make_choice():
             "tag": tag
         })
         
-<<<<<<< HEAD
-        # Save the updated state
-        user_sessions[session_id]['state'] = game_state
-=======
         # Save the updated state to persistent storage
         session_data['state'] = game_state
         save_user_session(session_id, session_data)
         logging.info(f"Saved updated state after choice for session {session_id}")
->>>>>>> 97b13c77256cb2c7c642e260712c1a71902ec652
         
         # Return the new state
         return get_current_state()
@@ -928,10 +836,7 @@ def reset_game():
         
         # Reset the game state for this session
         reset_game_state(session_id)
-<<<<<<< HEAD
-=======
         logging.info(f"Reset game state for session {session_id}")
->>>>>>> 97b13c77256cb2c7c642e260712c1a71902ec652
         
         # Instead of just returning success message, return the actual game state
         # by calling the get_current_state function
@@ -949,14 +854,6 @@ def generate_share_image():
         if not session_id:
             return jsonify({"error": "No session found"}), 400
         
-<<<<<<< HEAD
-        # Get the user's game state
-        if session_id not in user_sessions or 'state' not in user_sessions[session_id]:
-            return jsonify({"error": "No game in progress"}), 400
-            
-        game_state = user_sessions[session_id]['state']
-        
-=======
         # Get the user's game state from persistent storage
         session_data = get_user_session(session_id)
         game_state = session_data.get('state')
@@ -964,7 +861,6 @@ def generate_share_image():
         if not game_state:
             return jsonify({"error": "No game in progress"}), 400
             
->>>>>>> 97b13c77256cb2c7c642e260712c1a71902ec652
         # Get score and ending information
         score = game_state.get("score", 0)
         current_node_id = game_state.get("current_node_id", "")
