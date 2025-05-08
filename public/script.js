@@ -336,62 +336,60 @@ async function handleChoiceClick(event, retryCount = 0) {
 function displayEndScreen(data) {
     // Hide the main choices
     choicesElement.style.display = 'none';
+    imageElement.style.display = 'none';
 
-    // Calculate a star rating based on score (1-5 stars)
-    const score = data.current_score !== undefined ? data.current_score :
-        (data.score !== undefined ? data.score : 0);
-    const maxScore = 10; // Assuming maximum possible score is around 10
-    const starRating = Math.max(1, Math.min(5, Math.ceil(score / 2)));
-
-    // Show the end screen container with a fade in
+    // Show end screen
     endScreenElement.style.display = 'block';
     endScreenElement.style.opacity = '0';
 
-    // Prepare the end text content with score and rating
-    const endingCategory = data.ending_category || 'Adventure Complete';
-    const stars = '★'.repeat(starRating) + '☆'.repeat(5 - starRating);
+    // Create end text content
+    const score = data.score || 0;
+    const endingCategory = data.current_node.ending_category || 'Adventure Complete';
 
-    let endTextContent = `
+    let endContent = `
         <h2>${endingCategory}</h2>
         <div class="score-display">
-            <span class="score-label">Final Score:</span> 
+            <span class="score-label">Final Score</span>
             <span class="score-value">${score}</span>
-            <div class="star-rating">${stars}</div>
+            <div class="star-rating">${'★'.repeat(Math.min(5, Math.max(1, Math.ceil(score / 2))))}</div>
         </div>
-        <p>${data.situation}</p>
+        <div class="end-message">${data.current_node.situation || ''}</div>
     `;
 
-    // Add a personalized message based on score
-    if (score >= 8) {
-        endTextContent += `<p class="end-message">Remarkable! You've mastered this adventure with exceptional choices.</p>`;
-    } else if (score >= 5) {
-        endTextContent += `<p class="end-message">Well done! Your journey through the forest was quite successful.</p>`;
-    } else if (score >= 2) {
-        endTextContent += `<p class="end-message">You've completed your journey with some wisdom gained along the way.</p>`;
-    } else {
-        endTextContent += `<p class="end-message">The forest has taught you some difficult lessons. Perhaps another path would lead to a different fate.</p>`;
-    }
-
-    endTextElement.innerHTML = endTextContent;
+    endTextElement.innerHTML = endContent;
 
     // Load the manga-style image with fade-in effect
     if (data.manga_image_url) {
         mangaImageElement.style.opacity = '0';
+        mangaImageElement.style.display = 'block';
         mangaImageElement.src = data.manga_image_url;
         mangaImageElement.onload = () => {
             mangaImageElement.style.transition = 'opacity 0.8s ease';
             mangaImageElement.style.opacity = '1';
         };
+        mangaImageElement.onerror = () => {
+            console.error('Failed to load manga image');
+            mangaImageElement.style.display = 'none';
+        };
+    } else {
+        mangaImageElement.style.display = 'none';
     }
 
     // Load the summary image with fade-in effect
     if (data.summary_image_url) {
         summaryImageElement.style.opacity = '0';
+        summaryImageElement.style.display = 'block';
         summaryImageElement.src = data.summary_image_url;
         summaryImageElement.onload = () => {
             summaryImageElement.style.transition = 'opacity 0.8s ease';
             summaryImageElement.style.opacity = '1';
         };
+        summaryImageElement.onerror = () => {
+            console.error('Failed to load summary image');
+            summaryImageElement.style.display = 'none';
+        };
+    } else {
+        summaryImageElement.style.display = 'none';
     }
 
     // Add a reset container with custom styling for the end screen

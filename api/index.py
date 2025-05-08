@@ -610,11 +610,40 @@ def get_current_state():
         # Create the image URL
         encoded_prompt = requests.utils.quote(enhanced_prompt)
         image_url = f"{POLLINATIONS_BASE_URL}{encoded_prompt}"
+
+        # Generate manga and summary images if this is an end node
+        manga_image_url = None
+        summary_image_url = None
+        if node_details.get("is_end", False):
+            # Generate main traits from sentiment tally for manga image
+            main_traits = []
+            for tag, count in sentiment_tally.items():
+                if count > 0:
+                    main_traits.append(tag)
+            
+            # Select top 3 traits
+            top_traits = main_traits[:3] if len(main_traits) >= 3 else main_traits
+            traits_text = ", ".join(top_traits)
+            
+            # Create personalized descriptions
+            personality = f"a {traits_text} adventurer" if traits_text else "an adventurer"
+            ending_category = node_details.get("ending_category", "Adventure Complete")
+            score = game_state.get("score", 0)
+            
+            # Create manga-style panel layout prompt
+            manga_prompt = f"Manga style, 4-panel comic strip telling the story of {personality} who achieved the '{ending_category}' ending with a score of {score}, {enhanced_prompt}, clean white background with title 'Mystic Forest Adventure' and score displayed"
+            encoded_manga_prompt = requests.utils.quote(manga_prompt)
+            manga_image_url = f"{POLLINATIONS_BASE_URL}{encoded_manga_prompt}"
+            
+            # Create summary image prompt
+            summary_prompt = f"Epic fantasy illustration summarizing the journey of {personality}, showing key moments leading to the {ending_category.lower()} ending, detailed, dramatic lighting"
+            encoded_summary_prompt = requests.utils.quote(summary_prompt)
+            summary_image_url = f"{POLLINATIONS_BASE_URL}{encoded_summary_prompt}"
         
         # Personalize choices with variations except the first choice
         choices = node_details.get("choices", [])
         if choices and len(choices) > 0:
-            # Keep a deep copy to avoid modifying the original
+            # Keep a deep copy to avoid modifying original
             choices = [choice.copy() for choice in choices]
             
             # Get user's personality traits
@@ -648,7 +677,7 @@ def get_current_state():
                 "concise": ["simply", "briefly", "efficiently"]
             }
             
-            # Personalize choices (except first one at the start node) with small variations
+            # Personalize choices (except first one at start node) with small variations
             for i, choice in enumerate(choices):
                 # Skip first choice at start node to keep it consistent
                 if current_node_id == "start" and i == 0:
@@ -683,6 +712,8 @@ def get_current_state():
             "current_node": node_details,
             "score": game_state.get("score", 0),
             "image_url": image_url,
+            "manga_image_url": manga_image_url,
+            "summary_image_url": summary_image_url,
             "is_end": node_details.get("is_end", False),
             "choices": choices,
             "situation": node_details.get("situation", "")
