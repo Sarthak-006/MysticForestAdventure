@@ -696,7 +696,9 @@ def get_current_state():
             "current_node": node_details,
             "score": game_state.get("score", 0),
             "image_url": image_url,
-            "is_end": node_details.get("is_end", False)
+            "is_end": node_details.get("is_end", False),
+            "choices": node_details.get("choices", []),
+            "situation": node_details.get("situation", "")
         }
         
         response = make_response(jsonify(state_details))

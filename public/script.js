@@ -65,6 +65,7 @@ function showLoading(isLoading) {
 
 async function updateGameState(retryCount = 0) {
     showLoading(true);
+    console.log("Starting updateGameState, retryCount:", retryCount);
 
     // Clear previous state
     endScreenElement.style.display = 'none';
@@ -83,6 +84,7 @@ async function updateGameState(retryCount = 0) {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
 
+        console.log("Fetching state from API...");
         const response = await fetch('/api/state', {
             signal: controller.signal,
             headers: {
@@ -92,6 +94,7 @@ async function updateGameState(retryCount = 0) {
         });
 
         clearTimeout(timeoutId);
+        console.log("API response status:", response.status);
 
         if (!response.ok) {
             // If we get a 500 error from Vercel, it's likely a serverless function startup issue
@@ -111,10 +114,15 @@ async function updateGameState(retryCount = 0) {
         }
 
         const data = await response.json();
+        console.log("API response data:", data);
 
         // Validate the data received
         if (!data || (typeof data === 'object' && Object.keys(data).length === 0)) {
             throw new Error("Received empty response from server");
+        }
+
+        if (!data.image_url) {
+            console.warn("Response missing image_url, may cause display issues");
         }
 
         renderState(data);
@@ -160,6 +168,7 @@ async function updateGameState(retryCount = 0) {
 
 function renderState(data) {
     console.log("Rendering state:", data);
+    console.log("API Response details:", JSON.stringify(data));
 
     // Update score - check both current_score and score properties
     const score = data.current_score !== undefined ? data.current_score :
@@ -179,7 +188,11 @@ function renderState(data) {
     // Animate situation text
     situationElement.style.opacity = '0';
     setTimeout(() => {
-        situationElement.textContent = data.situation || 'Loading...';
+        // Check multiple possible locations for situation text
+        const situationText = data.situation ||
+            (data.current_node && data.current_node.situation) ||
+            'Loading...';
+        situationElement.textContent = situationText;
         situationElement.style.transition = 'opacity 0.8s ease';
         situationElement.style.opacity = '1';
     }, 300);
@@ -199,12 +212,19 @@ function renderState(data) {
 
     choicesElement.appendChild(resetContainer);
 
+    // Get choices from multiple possible locations in the response
+    const choices = data.choices ||
+        (data.current_node && data.current_node.choices) ||
+        [];
+
+    console.log("Choices found:", choices);
+
     if (data.is_end) {
         // Handle End Screen
         displayEndScreen(data);
-    } else if (data.choices && data.choices.length > 0) {
+    } else if (choices && choices.length > 0) {
         // Create choice buttons with staggered animation
-        data.choices.forEach((choice, index) => {
+        choices.forEach((choice, index) => {
             const button = document.createElement('button');
             button.textContent = choice.text || `Choice ${index + 1}`;
             button.dataset.index = index;
@@ -222,6 +242,7 @@ function renderState(data) {
         });
     } else {
         // No choices, maybe an intermediate state or error
+        console.error("No choices found in response data");
         situationElement.textContent += "\n (No choices available)";
     }
 }
