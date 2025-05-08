@@ -63,7 +63,7 @@ function showLoading(isLoading) {
     }
 }
 
-async function updateGameState() {
+async function updateGameState(retryCount = 0) {
     showLoading(true);
 
     // Clear previous state
@@ -81,7 +81,7 @@ async function updateGameState() {
 
     try {
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
+        const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
 
         const response = await fetch('/api/state', {
             signal: controller.signal,
@@ -94,6 +94,19 @@ async function updateGameState() {
         clearTimeout(timeoutId);
 
         if (!response.ok) {
+            // If we get a 500 error from Vercel, it's likely a serverless function startup issue
+            if (response.status === 500 && retryCount < 3) {
+                console.log(`Server returned 500 error. Retry attempt ${retryCount + 1}/3...`);
+                situationElement.textContent = `Server is starting up... Retrying (${retryCount + 1}/3)`;
+
+                // Wait longer between each retry (exponential backoff)
+                const retryDelay = Math.min(2000 * Math.pow(2, retryCount), 10000);
+
+                setTimeout(() => {
+                    updateGameState(retryCount + 1);
+                }, retryDelay);
+                return;
+            }
             throw new Error(`HTTP error! status: ${response.status}`);
         }
 
@@ -107,33 +120,39 @@ async function updateGameState() {
         renderState(data);
     } catch (error) {
         console.error("Error fetching game state:", error);
-        situationElement.textContent = `Error loading game state: ${error.message}. Retrying in 5 seconds...`;
 
-        // Always show the reset button when there's an error
-        choicesElement.innerHTML = '';
-        const resetContainer = document.createElement('div');
-        resetContainer.className = 'reset-container';
+        // Check if we should retry
+        if (retryCount < 3) {
+            situationElement.textContent = `Error loading game state. Retrying in ${retryCount + 1} seconds...`;
 
-        const resetButton = document.createElement('button');
-        resetButton.textContent = 'Reset Game';
-        resetButton.className = 'reset-button';
-        resetButton.addEventListener('click', resetGame);
-        resetContainer.appendChild(resetButton);
+            // Exponential backoff for retries
+            setTimeout(() => {
+                situationElement.textContent = "Attempting to reconnect...";
+                updateGameState(retryCount + 1);
+            }, (retryCount + 1) * 1000);
+        } else {
+            situationElement.textContent = `Error loading game state: ${error.message}. Please try reset or refresh.`;
 
-        const refreshBtn = document.createElement('button');
-        refreshBtn.textContent = 'Refresh Page';
-        refreshBtn.className = 'reset-button';
-        refreshBtn.style.marginLeft = '10px';
-        refreshBtn.addEventListener('click', () => window.location.reload());
-        resetContainer.appendChild(refreshBtn);
+            // Always show the reset button when there's an error
+            choicesElement.innerHTML = '';
+            const resetContainer = document.createElement('div');
+            resetContainer.className = 'reset-container';
 
-        choicesElement.appendChild(resetContainer);
+            const resetButton = document.createElement('button');
+            resetButton.textContent = 'Reset Game';
+            resetButton.className = 'reset-button';
+            resetButton.addEventListener('click', resetGame);
+            resetContainer.appendChild(resetButton);
 
-        // Auto-retry after 5 seconds
-        setTimeout(() => {
-            situationElement.textContent = "Attempting to reconnect...";
-            updateGameState();
-        }, 5000);
+            const refreshBtn = document.createElement('button');
+            refreshBtn.textContent = 'Refresh Page';
+            refreshBtn.className = 'reset-button';
+            refreshBtn.style.marginLeft = '10px';
+            refreshBtn.addEventListener('click', () => window.location.reload());
+            resetContainer.appendChild(refreshBtn);
+
+            choicesElement.appendChild(resetContainer);
+        }
     } finally {
         showLoading(false);
     }
@@ -207,21 +226,22 @@ function renderState(data) {
     }
 }
 
-async function handleChoiceClick(event) {
-    const choiceIndex = parseInt(event.target.dataset.index, 10);
-    if (isNaN(choiceIndex)) return;
-
+async function handleChoiceClick(event, retryCount = 0) {
     showLoading(true);
-    choicesElement.innerHTML = ''; // Clear choices immediately
+
+    const choiceIndex = event.target.dataset.index;
+    console.log(`Selected choice ${choiceIndex}`);
 
     try {
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+        const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
 
         const response = await fetch('/api/choice', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
+                'Cache-Control': 'no-cache',
+                'Pragma': 'no-cache'
             },
             body: JSON.stringify({ choice_index: choiceIndex }),
             signal: controller.signal
@@ -230,28 +250,63 @@ async function handleChoiceClick(event) {
         clearTimeout(timeoutId);
 
         if (!response.ok) {
-            const errorData = await response.json().catch(() => ({}));
-            throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
+            // If we get a 500 error from Vercel, it's likely a serverless function startup issue
+            if (response.status === 500 && retryCount < 3) {
+                console.log(`Server returned 500 error on choice. Retry attempt ${retryCount + 1}/3...`);
+                situationElement.textContent = `Server is processing... Retrying choice (${retryCount + 1}/3)`;
+
+                // Wait longer between each retry (exponential backoff)
+                const retryDelay = Math.min(2000 * Math.pow(2, retryCount), 10000);
+
+                setTimeout(() => {
+                    handleChoiceClick(event, retryCount + 1);
+                }, retryDelay);
+                return;
+            }
+            throw new Error(`HTTP error! status: ${response.status}`);
         }
 
-        const nextStateData = await response.json();
-        renderState(nextStateData); // Render the new state received
+        const data = await response.json();
+        renderState(data);
     } catch (error) {
         console.error("Error making choice:", error);
-        situationElement.textContent = `Error processing choice: ${error.message}`;
 
-        // Always show the reset button when there's an error
-        choicesElement.innerHTML = '';
-        const resetContainer = document.createElement('div');
-        resetContainer.className = 'reset-container';
+        // Check if we should retry
+        if (retryCount < 3) {
+            situationElement.textContent = `Error making choice. Retrying in ${retryCount + 1} seconds...`;
 
-        const resetButton = document.createElement('button');
-        resetButton.textContent = 'Reset Game';
-        resetButton.className = 'reset-button';
-        resetButton.addEventListener('click', resetGame);
-        resetContainer.appendChild(resetButton);
+            // Exponential backoff for retries
+            setTimeout(() => {
+                situationElement.textContent = "Attempting to submit choice again...";
+                handleChoiceClick(event, retryCount + 1);
+            }, (retryCount + 1) * 1000);
+        } else {
+            situationElement.textContent = `Error making choice: ${error.message}. Please try again or reset.`;
 
-        choicesElement.appendChild(resetContainer);
+            // Add buttons to help user recover
+            choicesElement.innerHTML = '';
+
+            // Re-add the original button
+            const originalButton = document.createElement('button');
+            originalButton.textContent = event.target.textContent;
+            originalButton.dataset.index = choiceIndex;
+            originalButton.addEventListener('click', handleChoiceClick);
+            choicesElement.appendChild(originalButton);
+
+            // Add reset button
+            const resetButton = document.createElement('button');
+            resetButton.textContent = 'Reset Game';
+            resetButton.className = 'reset-button';
+            resetButton.addEventListener('click', resetGame);
+            choicesElement.appendChild(resetButton);
+
+            // Add refresh button
+            const refreshBtn = document.createElement('button');
+            refreshBtn.textContent = 'Refresh Page';
+            refreshBtn.className = 'reset-button';
+            refreshBtn.addEventListener('click', () => window.location.reload());
+            choicesElement.appendChild(refreshBtn);
+        }
     } finally {
         showLoading(false);
     }
@@ -507,7 +562,7 @@ function fallbackCopyToClipboard(text) {
     alert('Story copied to clipboard! You can now share it with friends.');
 }
 
-async function resetGame() {
+async function resetGame(retryCount = 0) {
     showLoading(true);
 
     // Hide end screen
@@ -531,7 +586,7 @@ async function resetGame() {
 
     try {
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+        const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
 
         const response = await fetch('/api/reset', {
             method: 'POST',
@@ -545,6 +600,20 @@ async function resetGame() {
         clearTimeout(timeoutId);
 
         if (!response.ok) {
+            // If we get a 500 error from Vercel, it's likely a serverless function startup issue
+            if (response.status === 500 && retryCount < 3) {
+                console.log(`Server returned 500 error on reset. Retry attempt ${retryCount + 1}/3...`);
+                situationElement.textContent = `Server is starting up... Retrying reset (${retryCount + 1}/3)`;
+
+                // Wait longer between each retry (exponential backoff)
+                const retryDelay = Math.min(2000 * Math.pow(2, retryCount), 10000);
+
+                setTimeout(() => {
+                    resetGame(retryCount + 1);
+                }, retryDelay);
+                return;
+            }
+
             const errorData = await response.json().catch(() => ({}));
             throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
         }
@@ -562,14 +631,26 @@ async function resetGame() {
         }
     } catch (error) {
         console.error("Error resetting game:", error);
-        situationElement.textContent = `Error resetting game: ${error.message}. Please refresh the page.`;
 
-        // Always show a refresh button
-        choicesElement.innerHTML = '';
-        const refreshBtn = document.createElement('button');
-        refreshBtn.textContent = 'Refresh Page';
-        refreshBtn.addEventListener('click', () => window.location.reload());
-        choicesElement.appendChild(refreshBtn);
+        // Check if we should retry
+        if (retryCount < 3) {
+            situationElement.textContent = `Error resetting game. Retrying in ${retryCount + 1} seconds...`;
+
+            // Exponential backoff for retries
+            setTimeout(() => {
+                situationElement.textContent = "Attempting to reset game again...";
+                resetGame(retryCount + 1);
+            }, (retryCount + 1) * 1000);
+        } else {
+            situationElement.textContent = `Error resetting game: ${error.message}. Please refresh the page.`;
+
+            // Always show a refresh button
+            choicesElement.innerHTML = '';
+            const refreshBtn = document.createElement('button');
+            refreshBtn.textContent = 'Refresh Page';
+            refreshBtn.addEventListener('click', () => window.location.reload());
+            choicesElement.appendChild(refreshBtn);
+        }
     } finally {
         showLoading(false);
     }
