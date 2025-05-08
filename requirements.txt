@@ -2,6 +2,3 @@ flask
 requests
 Pillow
 flask-cors
-Werkzeug
-python-dotenv
-vercel-kv

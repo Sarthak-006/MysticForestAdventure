@@ -3,23 +3,14 @@ import requests
 import hashlib
 import os
 import time
-import json
-import logging
 from flask_cors import CORS
 import traceback
-from vercel_kv import VercelKV
 # Import your story_nodes, other helpers (modified to remove pygame)
 # MAKE SURE Pillow is installed for manga generation later
 # from PIL import Image, ImageDraw # If doing manga server-side
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-
 app = Flask(__name__)
 CORS(app)  # Enable CORS for all routes
-
-# Initialize Vercel KV
-kv = VercelKV()
 
 # --- Constants (Remove Pygame colors/fonts) ---
 POLLINATIONS_BASE_URL = "https://image.pollinations.ai/prompt/"
@@ -405,7 +396,7 @@ game_state = {
     "last_reset": time.time()  # Track when the game was last reset
 }
 
-# Add a user_sessions dictionary to track individual user sessions (for local development)
+# Add a user_sessions dictionary to track individual user sessions
 user_sessions = {}
 
 # --- Helper Functions (Refactored - NO PYGAME) ---
@@ -425,8 +416,10 @@ def get_dynamic_seed(base_seed, path_node_ids, session_id=None):
 
 def enhance_prompt(base_prompt, path_tuples, sentiment_tally, last_choice, session_id=None):
     """Enhance the base prompt with unique elements based on the user's journey"""
-    # Get the user's style preferences from session data
+    # Get the user's style preferences (if stored in their session)
     style_elements = []
+    if session_id and session_id in user_sessions and 'style_preferences' in user_sessions[session_id]:
+        style_elements = user_sessions[session_id]['style_preferences']
     
     # Default style elements if none are set
     if not style_elements:
@@ -472,7 +465,7 @@ def enhance_prompt(base_prompt, path_tuples, sentiment_tally, last_choice, sessi
     
     return enhanced
 
-async def reset_game_state(session_id=None):
+def reset_game_state(session_id=None):
     """Reset the game state"""
     initial_state = {
         "current_node_id": "start",
@@ -483,26 +476,20 @@ async def reset_game_state(session_id=None):
         "created_at": time.time()
     }
     
-    # If we have a session ID, store the state in Vercel KV
+    # If we have a session ID, store the state in the user_sessions dictionary
     if session_id:
+        if session_id not in user_sessions:
+            user_sessions[session_id] = {}
+        
+        # Generate some random style preferences for this session
         import random
         all_style_options = [
             "fantasy", "medieval", "ethereal", "mystical", "dramatic", 
             "whimsical", "dark", "bright", "colorful", "muted"
         ]
-        style_preferences = random.sample(all_style_options, 3)
-        traits = ["cautious", "bold", "diplomatic", "direct", "curious", "practical", 
-                  "optimistic", "pessimistic", "detailed", "concise"]
-        personality_traits = random.sample(traits, 3)
-        
-        # Save to Vercel KV
-        try:
-            await kv.set(f"session:{session_id}:state", json.dumps(initial_state))
-            await kv.set(f"session:{session_id}:style_preferences", json.dumps(style_preferences))
-            await kv.set(f"session:{session_id}:personality_traits", json.dumps(personality_traits))
-            logging.info(f"Successfully reset state for session {session_id}")
-        except Exception as e:
-            logging.error(f"Error saving to KV store: {str(e)}")
+        user_sessions[session_id]['style_preferences'] = random.sample(all_style_options, 3)
+        user_sessions[session_id]['state'] = initial_state
+        return user_sessions[session_id]['state']
     
     return initial_state
 
@@ -521,6 +508,13 @@ def get_node_details(node_id):
         if not node_copy.get("is_end", False) and "choices" in node_copy:
             # Deep copy choices to avoid modifying original
             node_copy["choices"] = [choice.copy() for choice in node_copy["choices"]]
+            
+            # Personalize choice texts with small variations
+            for choice in node_copy["choices"]:
+                if "text" in choice:
+                    # We could add small variations to choice text here
+                    # But we'll keep the first choice consistent as required
+                    pass  # Implemented in the next update
         
         return node_copy
         
@@ -532,45 +526,33 @@ def get_node_details(node_id):
 @app.route('/')
 def serve_index():
     try:
-        # Fix path for Vercel
-        return send_from_directory('./public', 'index.html')
+        return send_from_directory('../public', 'index.html')
     except Exception as e:
-        logging.error(f"Error serving index: {str(e)}")
+        print(f"Error serving index: {str(e)}")
         return f"Error serving page: {str(e)}", 500
 
 @app.route('/<path:path>')
 def serve_static(path):
     try:
-        # Fix path for Vercel
-        return send_from_directory('./public', path)
+        return send_from_directory('../public', path)
     except Exception as e:
-        logging.error(f"Error serving static file {path}: {str(e)}")
+        print(f"Error serving static file {path}: {str(e)}")
         return f"Error serving file: {str(e)}", 404
 
 @app.route('/api/state', methods=['GET'])
-async def get_current_state():
+def get_current_state():
     try:
         # Get user's session ID from cookies or create a new one
         session_id = request.cookies.get('session_id')
         if not session_id:
             # Generate a new session ID
             session_id = hashlib.md5(f"{time.time()}-{os.urandom(8).hex()}".encode()).hexdigest()
-            logging.info(f"Generated new session ID: {session_id}")
         
-        # Get or create the user's game state from Vercel KV
-        game_state = None
-        try:
-            state_json = await kv.get(f"session:{session_id}:state")
-            if state_json:
-                game_state = json.loads(state_json)
-                logging.info(f"Retrieved state for session {session_id}")
-        except Exception as e:
-            logging.error(f"Error retrieving from KV store: {str(e)}")
-        
-        if not game_state:
-            # Reset/initialize the game state
-            game_state = await reset_game_state(session_id)
-            logging.info(f"Created new state for session {session_id}")
+        # Get or create the user's game state
+        if session_id in user_sessions and 'state' in user_sessions[session_id]:
+            game_state = user_sessions[session_id]['state']
+        else:
+            game_state = reset_game_state(session_id)
         
         current_node_id = game_state["current_node_id"]
         node_details = get_node_details(current_node_id)
@@ -587,7 +569,8 @@ async def get_current_state():
         base_seed = node_details.get("seed", 12345)
         dynamic_seed = get_dynamic_seed(base_seed, path_node_ids, session_id)
         
-        path_tuples = [(node, sentiment_tally.get(node, 0)) for node in path_node_ids]
+        path_tuples = [(node, game_state.get("sentiment_tally", {}).get(node, 0)) 
+                       for node in path_node_ids]
         
         base_prompt = node_details.get("prompt", "")
         enhanced_prompt = enhance_prompt(base_prompt, path_tuples, sentiment_tally, last_choice, session_id)
@@ -602,26 +585,18 @@ async def get_current_state():
             # Keep a deep copy to avoid modifying the original
             choices = [choice.copy() for choice in choices]
             
-            # Get user's personality traits
-            personality_traits = []
-            try:
-                traits_json = await kv.get(f"session:{session_id}:personality_traits")
-                if traits_json:
-                    personality_traits = json.loads(traits_json)
-                    logging.info(f"Retrieved traits for session {session_id}")
-            except Exception as e:
-                logging.error(f"Error retrieving traits from KV store: {str(e)}")
-                
-            if not personality_traits:
+            # Get user's personality traits from sessions or generate new ones
+            if session_id not in user_sessions:
+                user_sessions[session_id] = {}
+            
+            if 'personality_traits' not in user_sessions[session_id]:
                 # Generate random personality traits for this user
                 import random
                 traits = ["cautious", "bold", "diplomatic", "direct", "curious", "practical", 
                           "optimistic", "pessimistic", "detailed", "concise"]
-                personality_traits = random.sample(traits, 3)
-                try:
-                    await kv.set(f"session:{session_id}:personality_traits", json.dumps(personality_traits))
-                except Exception as e:
-                    logging.error(f"Error saving traits to KV store: {str(e)}")
+                user_sessions[session_id]['personality_traits'] = random.sample(traits, 3)
+            
+            user_traits = user_sessions[session_id]['personality_traits']
             
             # Get a hash from the session ID to make choices consistently unique per user
             session_hash = int(hashlib.md5(session_id.encode()).hexdigest(), 16)
@@ -650,7 +625,7 @@ async def get_current_state():
                 
                 # Get suitable adjectives for this user's personality
                 suitable_adjectives = []
-                for trait in personality_traits:
+                for trait in user_traits:
                     if trait in adjectives:
                         suitable_adjectives.extend(adjectives[trait])
                 
@@ -705,11 +680,10 @@ async def get_current_state():
         
     except Exception as e:
         traceback.print_exc()
-        logging.error(f"Error in get_current_state: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/choice', methods=['POST'])
-async def make_choice():
+def make_choice():
     try:
         data = request.json
         choice_index = data.get('choice_index')
@@ -722,19 +696,11 @@ async def make_choice():
         if not session_id:
             return jsonify({"error": "No session found"}), 400
         
-        # Get the user's game state from Vercel KV
-        game_state = None
-        try:
-            state_json = await kv.get(f"session:{session_id}:state")
-            if state_json:
-                game_state = json.loads(state_json)
-                logging.info(f"Retrieved state for choice from session {session_id}")
-        except Exception as e:
-            logging.error(f"Error retrieving from KV store: {str(e)}")
-            
-        if not game_state:
+        # Get the user's game state
+        if session_id not in user_sessions or 'state' not in user_sessions[session_id]:
             return jsonify({"error": "No game in progress"}), 400
             
+        game_state = user_sessions[session_id]['state']
         current_node_id = game_state["current_node_id"]
         
         # Get current node details
@@ -818,64 +784,49 @@ async def make_choice():
             "tag": tag
         })
         
-        # Save the updated state to Vercel KV
-        try:
-            await kv.set(f"session:{session_id}:state", json.dumps(game_state))
-            logging.info(f"Saved updated state after choice for session {session_id}")
-        except Exception as e:
-            logging.error(f"Error saving to KV store: {str(e)}")
+        # Save the updated state
+        user_sessions[session_id]['state'] = game_state
         
         # Return the new state
-        return await get_current_state()
+        return get_current_state()
         
     except Exception as e:
         traceback.print_exc()
-        logging.error(f"Error in make_choice: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/reset', methods=['POST'])
-async def reset_game():
+def reset_game():
     try:
         # Get user's session ID from cookies
         session_id = request.cookies.get('session_id')
         if not session_id:
             # Generate a new session ID
             session_id = hashlib.md5(f"{time.time()}-{os.urandom(8).hex()}".encode()).hexdigest()
-            logging.info(f"Generated new session ID during reset: {session_id}")
         
         # Reset the game state for this session
-        await reset_game_state(session_id)
-        logging.info(f"Reset game state for session {session_id}")
+        reset_game_state(session_id)
         
         # Instead of just returning success message, return the actual game state
         # by calling the get_current_state function
-        return await get_current_state()
+        return get_current_state()
         
     except Exception as e:
         traceback.print_exc()
-        logging.error(f"Error in reset_game: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/share-image', methods=['GET'])
-async def generate_share_image():
+def generate_share_image():
     try:
         # Get user's session ID from cookies
         session_id = request.cookies.get('session_id')
         if not session_id:
             return jsonify({"error": "No session found"}), 400
         
-        # Get the user's game state from Vercel KV
-        game_state = None
-        try:
-            state_json = await kv.get(f"session:{session_id}:state")
-            if state_json:
-                game_state = json.loads(state_json)
-                logging.info(f"Retrieved state for share-image from session {session_id}")
-        except Exception as e:
-            logging.error(f"Error retrieving from KV store: {str(e)}")
-            
-        if not game_state:
+        # Get the user's game state
+        if session_id not in user_sessions or 'state' not in user_sessions[session_id]:
             return jsonify({"error": "No game in progress"}), 400
+            
+        game_state = user_sessions[session_id]['state']
         
         # Get score and ending information
         score = game_state.get("score", 0)
@@ -938,7 +889,6 @@ async def generate_share_image():
         
     except Exception as e:
         traceback.print_exc()
-        logging.error(f"Error in generate_share_image: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
 # Vercel expects the app object for Python runtimes
