@@ -7,31 +7,71 @@ from flask_cors import CORS
 import traceback
 import pickle
 import logging
+import threading
+from collections import OrderedDict
 # Import your story_nodes, other helpers (modified to remove pygame)
 # MAKE SURE Pillow is installed for manga generation later
 # from PIL import Image, ImageDraw # If doing manga server-side
 
 app = Flask(__name__)
-CORS(app)  # Enable CORS for all routes
+# Configure CORS to allow credentials
+CORS(app, supports_credentials=True, resources={
+    r"/api/*": {
+        "origins": "*",
+        "methods": ["GET", "POST", "OPTIONS"],
+        "allow_headers": ["Content-Type", "Authorization"],
+        "expose_headers": ["Set-Cookie"],
+        "supports_credentials": True
+    }
+})
 
 # Replace in-memory session storage with file-based storage for Vercel
 # Create a tmp directory if it doesn't exist
 os.makedirs('/tmp', exist_ok=True)
 
+# --- In-memory LRU cache for hot sessions (performance boost) ---
+class LRUCache:
+    def __init__(self, capacity=1000):
+        self.cache = OrderedDict()
+        self.capacity = capacity
+        self.lock = threading.Lock()
+
+    def get(self, key):
+        with self.lock:
+            if key not in self.cache:
+                return None
+            self.cache.move_to_end(key)
+            return self.cache[key]
+
+    def set(self, key, value):
+        with self.lock:
+            self.cache[key] = value
+            self.cache.move_to_end(key)
+            if len(self.cache) > self.capacity:
+                self.cache.popitem(last=False)
+
+hot_sessions = LRUCache(capacity=500)
+
+# --- Enhanced session management ---
 def get_user_session(session_id):
-    """Get user session from file storage"""
+    # Try in-memory cache first
+    session = hot_sessions.get(session_id)
+    if session:
+        return session
     try:
         session_file = f"/tmp/session_{session_id}.pkl"
         if os.path.exists(session_file):
             with open(session_file, 'rb') as f:
-                return pickle.load(f)
+                session = pickle.load(f)
+                hot_sessions.set(session_id, session)
+                return session
         return {'state': None}
     except Exception as e:
         logging.error(f"Error getting user session: {str(e)}")
         return {'state': None}
 
 def save_user_session(session_id, session_data):
-    """Save user session to file storage"""
+    hot_sessions.set(session_id, session_data)
     try:
         session_file = f"/tmp/session_{session_id}.pkl"
         with open(session_file, 'wb') as f:
@@ -40,6 +80,31 @@ def save_user_session(session_id, session_data):
     except Exception as e:
         logging.error(f"Error saving user session: {str(e)}")
         return False
+
+# --- Achievements, Inventory, Stats ---
+def init_player_extras():
+    return {
+        'inventory': [],
+        'achievements': set(),
+        'stats': {
+            'choices_made': 0,
+            'unique_nodes': set(),
+            'score_history': [],
+            'endings_seen': set(),
+        }
+    }
+
+def add_achievement(session_data, achievement):
+    session_data.setdefault('achievements', set()).add(achievement)
+
+def add_to_inventory(session_data, item):
+    session_data.setdefault('inventory', []).append(item)
+
+def update_stats(session_data, node_id, score):
+    stats = session_data.setdefault('stats', {'choices_made': 0, 'unique_nodes': set(), 'score_history': [], 'endings_seen': set()})
+    stats['choices_made'] += 1
+    stats['unique_nodes'].add(node_id)
+    stats['score_history'].append(score)
 
 # --- Constants (Remove Pygame colors/fonts) ---
 POLLINATIONS_BASE_URL = "https://image.pollinations.ai/prompt/"
@@ -568,8 +633,16 @@ def serve_static(path):
         print(f"Error serving static file {path}: {str(e)}")
         return f"Error serving file: {str(e)}", 404
 
-@app.route('/api/state', methods=['GET'])
+@app.route('/api/state', methods=['GET', 'OPTIONS'])
 def get_current_state():
+    if request.method == 'OPTIONS':
+        response = make_response()
+        response.headers.add('Access-Control-Allow-Origin', request.headers.get('Origin', '*'))
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type')
+        response.headers.add('Access-Control-Allow-Methods', 'GET, OPTIONS')
+        response.headers.add('Access-Control-Allow-Credentials', 'true')
+        return response
+
     try:
         # Get user's session ID from cookies or create a new one
         session_id = request.cookies.get('session_id')
@@ -584,6 +657,8 @@ def get_current_state():
         if not game_state:
             # Reset/initialize the game state
             game_state = reset_game_state(session_id)
+            session_data['state'] = game_state
+            save_user_session(session_id, session_data)
             logging.info(f"Created new state for session {session_id}")
         
         current_node_id = game_state["current_node_id"]
@@ -610,125 +685,36 @@ def get_current_state():
         # Create the image URL
         encoded_prompt = requests.utils.quote(enhanced_prompt)
         image_url = f"{POLLINATIONS_BASE_URL}{encoded_prompt}"
-
-        # Generate manga and summary images if this is an end node
-        manga_image_url = None
-        summary_image_url = None
-        if node_details.get("is_end", False):
-            # Generate main traits from sentiment tally for manga image
-            main_traits = []
-            for tag, count in sentiment_tally.items():
-                if count > 0:
-                    main_traits.append(tag)
-            
-            # Select top 3 traits
-            top_traits = main_traits[:3] if len(main_traits) >= 3 else main_traits
-            traits_text = ", ".join(top_traits)
-            
-            # Create personalized descriptions
-            personality = f"a {traits_text} adventurer" if traits_text else "an adventurer"
-            ending_category = node_details.get("ending_category", "Adventure Complete")
-            score = game_state.get("score", 0)
-            
-            # Create manga-style panel layout prompt
-            manga_prompt = f"Manga style, 4-panel comic strip telling the story of {personality} who achieved the '{ending_category}' ending with a score of {score}, {enhanced_prompt}, clean white background with title 'Mystic Forest Adventure' and score displayed"
-            encoded_manga_prompt = requests.utils.quote(manga_prompt)
-            manga_image_url = f"{POLLINATIONS_BASE_URL}{encoded_manga_prompt}"
-            
-            # Create summary image prompt
-            summary_prompt = f"Epic fantasy illustration summarizing the journey of {personality}, showing key moments leading to the {ending_category.lower()} ending, detailed, dramatic lighting"
-            encoded_summary_prompt = requests.utils.quote(summary_prompt)
-            summary_image_url = f"{POLLINATIONS_BASE_URL}{encoded_summary_prompt}"
         
-        # Personalize choices with variations except the first choice
-        choices = node_details.get("choices", [])
-        if choices and len(choices) > 0:
-            # Keep a deep copy to avoid modifying original
-            choices = [choice.copy() for choice in choices]
-            
-            # Get user's personality traits
-            personality_traits = session_data.get('personality_traits', [])
-            
-            if not personality_traits:
-                # Generate random personality traits for this user
-                import random
-                traits = ["cautious", "bold", "diplomatic", "direct", "curious", "practical", 
-                          "optimistic", "pessimistic", "detailed", "concise"]
-                personality_traits = random.sample(traits, 3)
-                
-                # Update session with new traits
-                session_data['personality_traits'] = personality_traits
-                save_user_session(session_id, session_data)
-            
-            # Get a hash from the session ID to make choices consistently unique per user
-            session_hash = int(hashlib.md5(session_id.encode()).hexdigest(), 16)
-            
-            # Adjective modifiers based on personality
-            adjectives = {
-                "cautious": ["carefully", "cautiously", "deliberately"],
-                "bold": ["boldly", "bravely", "confidently"],
-                "diplomatic": ["politely", "respectfully", "graciously"],
-                "direct": ["directly", "straightforwardly", "bluntly"],
-                "curious": ["curiously", "inquisitively", "wonderingly"],
-                "practical": ["practically", "sensibly", "reasonably"],
-                "optimistic": ["hopefully", "optimistically", "eagerly"],
-                "pessimistic": ["warily", "skeptically", "doubtfully"],
-                "detailed": ["meticulously", "thoroughly", "carefully"],
-                "concise": ["simply", "briefly", "efficiently"]
-            }
-            
-            # Personalize choices (except first one at start node) with small variations
-            for i, choice in enumerate(choices):
-                # Skip first choice at start node to keep it consistent
-                if current_node_id == "start" and i == 0:
-                    continue
-                    
-                original_text = choice.get("text", "")
-                
-                # Get suitable adjectives for this user's personality
-                user_adjectives = []
-                for trait in personality_traits:
-                    if trait in adjectives:
-                        user_adjectives.extend(adjectives[trait])
-                
-                # If no suitable adjectives found, use a default set
-                if not user_adjectives:
-                    user_adjectives = ["carefully", "boldly", "curiously"]
-                
-                # Use session ID hash to pick a consistent adjective for each choice
-                adj_index = (session_hash + i) % len(user_adjectives)
-                selected_adj = user_adjectives[adj_index]
-                
-                # Only modify the text if it doesn't already start with an adverb
-                adverb_endings = ["ly ", "ly."]
-                has_adverb = any(original_text.split()[0].endswith(ending) for ending in adverb_endings)
-                
-                if not has_adverb and not original_text.startswith(selected_adj):
-                    # Add the adjective to the beginning of the choice
-                    choice["text"] = f"{selected_adj.capitalize()} {original_text[0].lower()}{original_text[1:]}"
-        
-        # Create response with cookie to save the session ID
+        # Create response data
         state_details = {
             "current_node": node_details,
             "score": game_state.get("score", 0),
             "image_url": image_url,
-            "manga_image_url": manga_image_url,
-            "summary_image_url": summary_image_url,
             "is_end": node_details.get("is_end", False),
-            "choices": choices,
+            "choices": node_details.get("choices", []),
             "situation": node_details.get("situation", "")
         }
         
+        # Create response with cookie
         response = make_response(jsonify(state_details))
-        response.set_cookie('session_id', session_id, max_age=60*60*24*7)  # 7 days
+        response.set_cookie('session_id', session_id, httponly=True, samesite='Strict')
         return response
         
     except Exception as e:
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
-@app.route('/api/choice', methods=['POST'])
+@app.route('/api/choice', methods=['POST', 'OPTIONS'])
 def make_choice():
+    if request.method == 'OPTIONS':
+        response = make_response()
+        response.headers.add('Access-Control-Allow-Origin', request.headers.get('Origin', '*'))
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type')
+        response.headers.add('Access-Control-Allow-Methods', 'POST, OPTIONS')
+        response.headers.add('Access-Control-Allow-Credentials', 'true')
+        return response
+
     try:
         # Get post data
         data = request.get_json()
@@ -954,15 +940,6 @@ def generate_share_image():
     except Exception as e:
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
-
-# Handle OPTIONS for CORS preflight requests
-@app.route('/api/<path:path>', methods=['OPTIONS'])
-def handle_options(path):
-    response = make_response()
-    response.headers.add('Access-Control-Allow-Origin', '*')
-    response.headers.add('Access-Control-Allow-Headers', 'Content-Type')
-    response.headers.add('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-    return response
 
 # Vercel expects the app object for Python runtimes
 # The file is usually named index.py inside an 'api' folder

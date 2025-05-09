@@ -18,6 +18,132 @@ const copyImageButton = document.getElementById('copy-image');
 const shareTwitterButton = document.getElementById('share-twitter');
 const shareFacebookButton = document.getElementById('share-facebook');
 
+const mangaSpinner = document.getElementById('manga-spinner');
+const mangaShimmer = document.getElementById('manga-shimmer');
+const mangaRetry = document.getElementById('manga-retry');
+const summarySpinner = document.getElementById('summary-spinner');
+const summaryShimmer = document.getElementById('summary-shimmer');
+const summaryRetry = document.getElementById('summary-retry');
+
+// Helper function to load images with spinner, shimmer, and retry logic
+function loadImage({
+    imgElement,
+    spinnerElement,
+    shimmerElement,
+    retryElement,
+    imageUrl,
+    altText,
+    onLoadCallback,
+    onErrorCallback,
+    initialOpacity = '0.2',
+    successOpacity = '1',
+    transition = 'opacity 0.7s cubic-bezier(.4,0,.2,1)',
+    retryButtonText = 'Retry',
+    retryButtonClass = 'image-retry-button' // A new class for styling if needed
+}) {
+    if (!imgElement) {
+        console.warn("loadImage: Missing image element", { imageUrl });
+        if (spinnerElement) spinnerElement.style.display = 'none';
+        if (shimmerElement) shimmerElement.style.display = 'none';
+        // Potentially call onErrorCallback if provided
+        if (onErrorCallback) onErrorCallback({ error: "Missing image element" });
+        return;
+    }
+    if (!imageUrl) {
+        console.warn("loadImage: Missing image URL for element:", imgElement.id);
+        imgElement.style.opacity = initialOpacity; // Show it as "empty" or placeholder
+        if (spinnerElement) spinnerElement.style.display = 'none';
+        if (shimmerElement) shimmerElement.style.display = 'none';
+        if (retryElement) {
+            retryElement.style.display = 'block';
+            // Clear previous content if retryElement is also a message container
+            const existingButton = retryElement.querySelector('.' + retryButtonClass);
+            if (existingButton) existingButton.remove();
+
+            const btn = document.createElement('button');
+            btn.textContent = 'No Image URL Provided. Cannot Retry.';
+            btn.className = retryButtonClass;
+            btn.disabled = true;
+            retryElement.appendChild(btn);
+        }
+        if (onErrorCallback) onErrorCallback({ error: "Missing image URL" });
+        return;
+    }
+
+
+    imgElement.style.opacity = initialOpacity;
+    if (altText) imgElement.alt = altText;
+    if (spinnerElement) spinnerElement.style.display = 'block';
+    if (shimmerElement) shimmerElement.style.display = 'block';
+    if (retryElement) {
+        retryElement.style.display = 'none';
+        // Clear previous message/button from retryElement if it's a container
+        const existingButton = retryElement.querySelector('.' + retryButtonClass);
+        if (existingButton) existingButton.remove();
+        // Also clear any direct text content if it was used for messages
+        if (retryElement.firstChild && retryElement.firstChild.nodeType === Node.TEXT_NODE) {
+            // Only remove if it's likely a message we set, not other structural text
+            if (retryElement.textContent.includes("Failed to load") || retryElement.textContent.includes("Crafting your")) {
+                retryElement.textContent = '';
+            }
+        }
+    }
+
+    const tempImage = new Image();
+    tempImage.onload = () => {
+        imgElement.src = imageUrl;
+        imgElement.style.transition = transition;
+        imgElement.style.opacity = successOpacity;
+        if (spinnerElement) spinnerElement.style.display = 'none';
+        if (shimmerElement) shimmerElement.style.display = 'none';
+        if (retryElement) retryElement.style.display = 'none';
+        if (onLoadCallback) onLoadCallback();
+    };
+    tempImage.onerror = (err) => {
+        console.error("Failed to load image:", imageUrl, err);
+        if (spinnerElement) spinnerElement.style.display = 'none';
+        if (shimmerElement) shimmerElement.style.display = 'none';
+        if (retryElement) {
+            retryElement.style.display = 'block'; // Show the container
+            // Clear previous content before adding new button/message
+            const existingButton = retryElement.querySelector('.' + retryButtonClass);
+            if (existingButton) existingButton.remove();
+            if (retryElement.firstChild && retryElement.firstChild.nodeType === Node.TEXT_NODE) {
+                if (retryElement.textContent.includes("Failed to load") || retryElement.textContent.includes("Crafting your")) {
+                    retryElement.textContent = '';
+                }
+            }
+
+            const btn = document.createElement('button');
+            btn.textContent = retryButtonText;
+            btn.className = retryButtonClass; // Use a class for styling
+            btn.style.marginTop = '10px'; // Example style
+            btn.onclick = () => {
+                // Reset UI and try loading again
+                imgElement.style.opacity = initialOpacity; // Reset opacity for visual feedback
+                if (spinnerElement) spinnerElement.style.display = 'block';
+                if (shimmerElement) shimmerElement.style.display = 'block';
+                if (retryElement) {
+                    retryElement.style.display = 'none'; // Hide container while retrying
+                    const existingBtn = retryElement.querySelector('.' + retryButtonClass);
+                    if (existingBtn) existingBtn.remove();
+                    if (retryElement.firstChild && retryElement.firstChild.nodeType === Node.TEXT_NODE) {
+                        if (retryElement.textContent.includes("Failed to load") || retryElement.textContent.includes("Crafting your")) {
+                            retryElement.textContent = '';
+                        }
+                    }
+                }
+                tempImage.src = imageUrl; // Re-trigger load
+            };
+            retryElement.appendChild(btn);
+        }
+        imgElement.style.opacity = initialOpacity; // Keep it dim or show placeholder
+        if (onErrorCallback) onErrorCallback({ error: "Image load failed", originalEvent: err });
+    };
+
+    tempImage.src = imageUrl;
+}
+
 function showLoading(isLoading) {
     if (isLoading) {
         // Set up the loading indicator with animation
@@ -87,6 +213,7 @@ async function updateGameState(retryCount = 0) {
         console.log("Fetching state from API...");
         const response = await fetch('/api/state', {
             signal: controller.signal,
+            credentials: 'include',
             headers: {
                 'Cache-Control': 'no-cache',
                 'Pragma': 'no-cache'
@@ -166,6 +293,30 @@ async function updateGameState(retryCount = 0) {
     }
 }
 
+// Add intersection observer for lazy loading
+const lazyLoadImages = () => {
+    const imageObserver = new IntersectionObserver((entries, observer) => {
+        entries.forEach(entry => {
+            if (entry.isIntersecting) {
+                const img = entry.target;
+                if (img.dataset.src) {
+                    img.src = img.dataset.src;
+                    img.removeAttribute('data-src');
+                }
+                observer.unobserve(img);
+            }
+        });
+    }, {
+        rootMargin: '50px 0px',
+        threshold: 0.1
+    });
+
+    document.querySelectorAll('img[loading="lazy"]').forEach(img => {
+        imageObserver.observe(img);
+    });
+};
+
+// Optimize image loading in renderState
 function renderState(data) {
     console.log("Rendering state:", data);
     console.log("API Response details:", JSON.stringify(data));
@@ -175,14 +326,14 @@ function renderState(data) {
         (data.score !== undefined ? data.score : 0);
     scoreElement.textContent = `Score: ${score}`;
 
-    // Update image with fade-in effect
-    imageElement.style.opacity = '0';
-    imageElement.src = data.image_url || '';
-    imageElement.alt = data.image_prompt || 'Story scene';
-    imageElement.onload = () => {
-        imageElement.style.transition = 'opacity 0.5s ease';
-        imageElement.style.opacity = '1';
-    };
+    loadImage({
+        imgElement: imageElement,
+        spinnerElement: document.getElementById('image-spinner'),
+        shimmerElement: document.getElementById('image-shimmer'),
+        retryElement: document.getElementById('image-retry'),
+        imageUrl: data.image_url,
+        altText: data.image_prompt || 'Story scene'
+    });
     imageElement.style.display = 'block';
 
     // Animate situation text
@@ -259,6 +410,7 @@ async function handleChoiceClick(event, retryCount = 0) {
 
         const response = await fetch('/api/choice', {
             method: 'POST',
+            credentials: 'include',
             headers: {
                 'Content-Type': 'application/json',
                 'Cache-Control': 'no-cache',
@@ -333,64 +485,82 @@ async function handleChoiceClick(event, retryCount = 0) {
     }
 }
 
+// Optimize end screen image loading
 function displayEndScreen(data) {
+    const endingCategory = data.ending_category || 'Adventure Complete';
+    const situationText = data.situation || 'A mysterious outcome.';
+    let mangaImageUrl = data.manga_image_url;
+    let summaryImageUrl = data.summary_image_url;
+
+    if (!mangaImageUrl) {
+        const mangaPrompt = encodeURIComponent(
+            `manga comic, 4 panels, depicting: ${endingCategory.toLowerCase()}, story highlight: ${situationText.substring(0, 70)}, fantasy forest adventure, clear English speech bubbles, vibrant colors, detailed art`
+        );
+        mangaImageUrl = `https://image.pollinations.ai/prompt/${mangaPrompt}`;
+    }
+    if (!summaryImageUrl) {
+        const summaryPrompt = encodeURIComponent(
+            `cinematic digital painting, summary of: ${endingCategory.toLowerCase()}, visualising the key moment: ${situationText.substring(0, 80)}, epic fantasy forest, atmospheric lighting, high detail, professional artwork`
+        );
+        summaryImageUrl = `https://image.pollinations.ai/prompt/${summaryPrompt}`;
+    }
+
     // Hide the main choices
     choicesElement.style.display = 'none';
-    imageElement.style.display = 'none';
 
-    // Show end screen
+    // Calculate a star rating based on score (1-5 stars)
+    const score = data.current_score !== undefined ? data.current_score :
+        (data.score !== undefined ? data.score : 0);
+    const maxScore = 10; // Assuming maximum possible score is around 10
+    const starRating = Math.max(1, Math.min(5, Math.ceil(score / 2)));
+
+    // Show the end screen container with a fade in
     endScreenElement.style.display = 'block';
     endScreenElement.style.opacity = '0';
 
-    // Create end text content
-    const score = data.score || 0;
-    const endingCategory = data.current_node.ending_category || 'Adventure Complete';
+    // Prepare the end text content with score and rating
+    const stars = '★'.repeat(starRating) + '☆'.repeat(5 - starRating);
 
-    let endContent = `
+    let endTextContent = `
         <h2>${endingCategory}</h2>
         <div class="score-display">
-            <span class="score-label">Final Score</span>
+            <span class="score-label">Final Score:</span> 
             <span class="score-value">${score}</span>
-            <div class="star-rating">${'★'.repeat(Math.min(5, Math.max(1, Math.ceil(score / 2))))}</div>
+            <div class="star-rating">${stars}</div>
         </div>
-        <div class="end-message">${data.current_node.situation || ''}</div>
+        <p>${situationText}</p>
     `;
 
-    endTextElement.innerHTML = endContent;
-
-    // Load the manga-style image with fade-in effect
-    if (data.manga_image_url) {
-        mangaImageElement.style.opacity = '0';
-        mangaImageElement.style.display = 'block';
-        mangaImageElement.src = data.manga_image_url;
-        mangaImageElement.onload = () => {
-            mangaImageElement.style.transition = 'opacity 0.8s ease';
-            mangaImageElement.style.opacity = '1';
-        };
-        mangaImageElement.onerror = () => {
-            console.error('Failed to load manga image');
-            mangaImageElement.style.display = 'none';
-        };
+    // Add a personalized message based on score
+    if (score >= 8) {
+        endTextContent += `<p class="end-message">Remarkable! You've mastered this adventure with exceptional choices.</p>`;
+    } else if (score >= 5) {
+        endTextContent += `<p class="end-message">Well done! Your journey through the forest was quite successful.</p>`;
+    } else if (score >= 2) {
+        endTextContent += `<p class="end-message">You've completed your journey with some wisdom gained along the way.</p>`;
     } else {
-        mangaImageElement.style.display = 'none';
+        endTextContent += `<p class="end-message">The forest has taught you some difficult lessons. Perhaps another path would lead to a different fate.</p>`;
     }
 
-    // Load the summary image with fade-in effect
-    if (data.summary_image_url) {
-        summaryImageElement.style.opacity = '0';
-        summaryImageElement.style.display = 'block';
-        summaryImageElement.src = data.summary_image_url;
-        summaryImageElement.onload = () => {
-            summaryImageElement.style.transition = 'opacity 0.8s ease';
-            summaryImageElement.style.opacity = '1';
-        };
-        summaryImageElement.onerror = () => {
-            console.error('Failed to load summary image');
-            summaryImageElement.style.display = 'none';
-        };
-    } else {
-        summaryImageElement.style.display = 'none';
-    }
+    endTextElement.innerHTML = endTextContent;
+
+    loadImage({
+        imgElement: mangaImageElement,
+        spinnerElement: mangaSpinner,
+        shimmerElement: mangaShimmer,
+        retryElement: mangaRetry,
+        imageUrl: mangaImageUrl,
+        altText: 'Story manga'
+    });
+
+    loadImage({
+        imgElement: summaryImageElement,
+        spinnerElement: summarySpinner,
+        shimmerElement: summaryShimmer,
+        retryElement: summaryRetry,
+        imageUrl: summaryImageUrl,
+        altText: 'Story summary'
+    });
 
     // Add a reset container with custom styling for the end screen
     const resetContainer = document.createElement('div');
@@ -423,49 +593,72 @@ function displayEndScreen(data) {
 
 // New function to open the share modal and generate shareable image
 async function openShareModal(score, endingCategory) {
-    // Show the modal
     shareModalElement.style.display = 'block';
-
-    // Clear any previous image
     shareMangaImageElement.style.display = 'none';
     shareMangaImageElement.src = '';
-
-    // Show loading indicator
     shareLoadingElement.style.display = 'block';
+    // Updated loading text for clarity
+    shareLoadingElement.innerHTML = '🖌️ Crafting your unique comic strip... <br>This can take up to a minute, please wait.';
 
+    // Remove any previous retry button from shareLoadingElement
+    const existingRetryButton = shareLoadingElement.querySelector('.image-retry-button');
+    if (existingRetryButton) {
+        existingRetryButton.remove();
+    }
+
+    let shareImageUrl;
     try {
-        // Fetch the shareable image from our API
         const response = await fetch('/api/share-image');
-
         if (!response.ok) {
+            console.error(`API error for share image: ${response.status}`);
             throw new Error(`HTTP error! status: ${response.status}`);
         }
-
         const data = await response.json();
-
-        // Hide loading and show the image
-        shareLoadingElement.style.display = 'none';
-        shareMangaImageElement.style.display = 'block';
-        shareMangaImageElement.src = data.share_image_url;
-
-        // Setup share buttons with the appropriate data
-        setupShareButtons(data.share_image_url, score, endingCategory);
-
-    } catch (error) {
-        console.error("Error generating share image:", error);
-        shareLoadingElement.textContent = `Error generating image: ${error.message}. Please try again.`;
-
-        // Add a retry button
-        const retryButton = document.createElement('button');
-        retryButton.textContent = 'Retry';
-        retryButton.className = 'action-button';
-        retryButton.style.marginTop = '15px';
-        retryButton.addEventListener('click', () => {
-            openShareModal(score, endingCategory);
-        });
-
-        shareLoadingElement.appendChild(retryButton);
+        shareImageUrl = data.share_image_url;
+        if (!shareImageUrl) {
+            console.warn('API provided no share_image_url, falling back to Pollinations.ai');
+            throw new Error('Missing share_image_url from API');
+        }
+    } catch (apiError) {
+        console.log('Falling back to Pollinations.ai for share image due to:', apiError.message);
+        const prompt = encodeURIComponent(
+            "manga comic, fantasy forest adventure, expressive characters, clear English speech bubbles, 4 panels, high quality, dramatic, adventure, professional comic layout"
+        );
+        shareImageUrl = `https://image.pollinations.ai/prompt/${prompt}`;
     }
+
+    loadImage({
+        imgElement: shareMangaImageElement,
+        spinnerElement: null, // No separate spinner, shareLoadingElement handles this
+        shimmerElement: null, // No shimmer for share modal image
+        retryElement: shareLoadingElement, // shareLoadingElement will host the retry button/message
+        imageUrl: shareImageUrl,
+        altText: 'Shareable manga story',
+        retryButtonText: 'Try Again?',
+        retryButtonClass: 'action-button', // Use existing styling for share modal buttons
+        onLoadCallback: () => {
+            shareLoadingElement.style.display = 'none'; // Hide loading message
+            shareMangaImageElement.style.display = 'block'; // Show loaded image
+            setupShareButtons(shareImageUrl, score, endingCategory);
+        },
+        onErrorCallback: (errorDetails) => {
+            // The loadImage helper already appends a retry button to retryElement (shareLoadingElement)
+            // We just need to make sure the message is appropriate.
+            // The helper's default error handling might be okay, or we can customize message here.
+            shareLoadingElement.innerHTML = `😢 Failed to load your awesome comic. (${errorDetails.error || 'Unknown error'}) `;
+            // Re-add button manually if helper's default isn't what we want for this specific UI
+            const btn = document.createElement('button');
+            btn.textContent = 'Try Again?';
+            btn.className = 'action-button';
+            btn.style.marginTop = '10px';
+            btn.onclick = () => {
+                shareLoadingElement.innerHTML = '🖌️ Crafting your unique comic strip... <br>This can take up to a minute, please wait.';
+                openShareModal(score, endingCategory);
+            };
+            shareLoadingElement.appendChild(btn);
+            shareMangaImageElement.style.display = 'none';
+        }
+    });
 }
 
 // Setup the share buttons with the correct URLs and functionality
@@ -677,3 +870,6 @@ async function resetGame(retryCount = 0) {
 
 // Initial load when the page loads
 document.addEventListener('DOMContentLoaded', updateGameState);
+
+// Initialize lazy loading
+document.addEventListener('DOMContentLoaded', lazyLoadImages);

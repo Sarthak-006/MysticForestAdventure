@@ -12,6 +12,9 @@
         rel="stylesheet">
     <link rel="icon"
         href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌲</text></svg>">
+
+    <!-- Preload critical images -->
+    <link rel="preload" as="image" href="/api/state" type="image/png">
 </head>
 
 <body>
@@ -23,8 +26,11 @@
 
         <main id="main-content">
             <div class="image-container">
-                <img id="story-image" alt="Story scene" class="story-image">
+                <img id="story-image" alt="Story scene" class="story-image" loading="eager" width="1024" height="1024">
                 <div class="image-overlay"></div>
+                <div id="image-spinner" class="image-spinner" style="display:none"></div>
+                <div id="image-shimmer" class="image-shimmer" style="display:none"></div>
+                <button id="image-retry" class="image-retry" style="display:none">Retry</button>
             </div>
 
             <div id="situation-text" class="situation"></div>
@@ -37,8 +43,20 @@
         <div id="end-screen" class="end-screen" style="display: none;">
             <div id="end-text" class="end-text"></div>
             <div class="end-images">
-                <img id="manga-image" alt="Story manga" class="manga-image">
-                <img id="summary-image" alt="Story summary" class="summary-image">
+                <div class="image-container end-manga-container">
+                    <img id="manga-image" alt="Story manga" class="manga-image" loading="lazy" width="1024"
+                        height="1024">
+                    <div class="image-spinner" id="manga-spinner" style="display:none"></div>
+                    <div class="image-shimmer" id="manga-shimmer" style="display:none"></div>
+                    <button class="image-retry" id="manga-retry" style="display:none">Retry</button>
+                </div>
+                <div class="image-container end-summary-container">
+                    <img id="summary-image" alt="Story summary" class="summary-image" loading="lazy" width="1024"
+                        height="1024">
+                    <div class="image-spinner" id="summary-spinner" style="display:none"></div>
+                    <div class="image-shimmer" id="summary-shimmer" style="display:none"></div>
+                    <button class="image-retry" id="summary-retry" style="display:none">Retry</button>
+                </div>
             </div>
         </div>
 
@@ -48,7 +66,8 @@
                 <span class="close-modal">&times;</span>
                 <h2>Your Mystic Forest Adventure</h2>
                 <div class="share-image-container">
-                    <img id="share-manga-image" alt="Shareable manga story" class="share-manga-image">
+                    <img id="share-manga-image" alt="Shareable manga story" class="share-manga-image" loading="lazy"
+                        width="1024" height="1024">
                     <div id="share-loading" class="loading">Generating your story...</div>
                 </div>
                 <div class="share-actions">
